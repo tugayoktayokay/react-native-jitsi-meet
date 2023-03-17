@@ -12,9 +12,10 @@ Pod::Spec.new do |s|
   s.homepage     = package['homepage']
   s.platform     = :ios, "12.0"
 
-  s.source       = { :git => "https://github.com/skrafft/react-native-jitsi-meet.git", :tag => "v#{s.version}" }
+  s.source       = { :git => "https://github.com/tugayoktayokay/react-native-jitsi-meet.git", :tag => "v#{s.version}" }
   s.source_files  = "ios/**/*.{h,m}"
 
   s.dependency 'React'
-  s.dependency 'JitsiMeetSDK', '5.1.1'
+  s.dependency 'React-Core'
+  s.dependency 'JitsiMeetSDK', '7.0.1'
 end

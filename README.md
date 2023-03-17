@@ -1,16 +1,19 @@
 # react-native-jitsi-meet
+
 React native wrapper for Jitsi Meet SDK
 
 ## Important notice
+
+NOTE: Major update is only available for IOS.
 
 Jitsi Meet SDK is a packed React Native SDK. Running react-native-jitsi-meet will run this React Native SDK inside your React Native app. We know that this is suboptimal but sadly we did not find any other solution without massive rewrite of Jitsi Meet SDK. Compatibility with other libraries used internally by Jitsi Meet SDK might be broken (version mismatch) or you might experience performance issues or touch issues in some edge cases.
 
 ## Install
 
-`npm install react-native-jitsi-meet --save` 
+`npm install react-native-jitsi-meet --save`
 
 If you are using React-Native < 0.60, you should use a version < 2.0.0.  
-For versions higher than 2.0.0, you need to add the following piece of code in your ```metro.config.js``` file to avoid conflicts between react-native-jitsi-meet and react-native in metro bundler.
+For versions higher than 2.0.0, you need to add the following piece of code in your `metro.config.js` file to avoid conflicts between react-native-jitsi-meet and react-native in metro bundler.
 
 ```
 const blacklist = require('metro-config/src/defaults/blacklist');
@@ -26,111 +29,147 @@ module.exports = {
 
 Although most of the process is automated, you still have to follow the platform install guide below ([iOS](#ios-install-for-rn--060) and [Android](#android-install)) to get this library to work.
 
-
 ## Use (>= 2.0.0)
 
 The following component is an example of use:
 
 ```
-import React, { useEffect } from 'react';
-import { View } from 'react-native';
-import JitsiMeet, { JitsiMeetView } from 'react-native-jitsi-meet';
+import React, {useEffect, useState} from 'react';
+import {
+  JitsiMeetView,
+  jitsiEventEmitter,
+  jitsiCall,
+} from 'react-native-jitsi-meet';
 
 const VideoCall = () => {
-  const onConferenceTerminated = (nativeEvent) => {
-    /* Conference terminated event */
-  }
+  const [isLoading, setIsLoading] = useState(false);
 
-  const onConferenceJoined = (nativeEvent) => {
-    /* Conference joined event */
-  }
-
-  const onConferenceWillJoin= (nativeEvent) => {
-    /* Conference will join event */
-  }
-
-  useEffect(() => {
+   useEffect(() => {
     setTimeout(() => {
-      const url = 'https://meet.jit.si/deneme'; // can also be only room name and will connect to jitsi meet servers
-      const userInfo = { displayName: 'User', email: 'user@example.com', avatar: 'https:/gravatar.com/avatar/abc123' };
-      const options = {
-        audioMuted: false,
-        audioOnly: false,
-        videoMuted: false,
-        subject: "your subject",
-        token: "your token"
-      }
+      const serverConf = {
+        serverUrl: 'https://meet.jit.si',
+        room: 'https://meet.jit.si/deneme',
+      };
+      const userInfo = {
+        displayName:'User',
+        email: 'user@example.com',
+        avatar: 'https:/gravatar.com/avatar/abc123',
+      };
+      const meetOptions = {
+        audioMuted: true,
+        audioOnly: true,
+        videoMuted: true,
+        // subject: 'your subject',
+        // token: 'your token',
+      };
       const meetFeatureFlags = {
+        iosScreenSharingEnabled: false,
         addPeopleEnabled: true,
-        calendarEnabled: true,
+        calendarEnabled: false,
         callIntegrationEnabled: true,
         chatEnabled: true,
-        closeCaptionsEnabled: true,
+        closeCaptionsEnabled: false,
         inviteEnabled: true,
-        androidScreenSharingEnabled: true,
+        iosRecordingEnabled: false,
         liveStreamingEnabled: true,
         meetingNameEnabled: true,
-        meetingPasswordEnabled: true,
-        pipEnabled: true,
-        kickOutEnabled: true,
-        conferenceTimerEnabled: true,
-        videoShareButtonEnabled: true,
-        recordingEnabled: true,
-        reactionsEnabled: true,
-        raiseHandEnabled: true,
-        tileViewEnabled: true,
-        toolboxAlwaysVisible: false,
         toolboxEnabled: true,
+        toolboxAlwaysVisible: false,
+        raiseHandEnabled: true,
+        reactionsEnabled: false,
+        kickOutEnabled: true,
+        conferenceTimerEnabled: false,
+        videoShareEnabled: true,
+        meetingPasswordEnabled: true,
+        pipEnabled: false,
+        tileViewEnabled: false,
         welcomePageEnabled: false,
-      }
-      JitsiMeet.call(url, userInfo, options. meetFeatureFlags);
-      /* You can also use JitsiMeet.audioCall(url) for audio only call */
-      /* You can programmatically end the call with JitsiMeet.endCall() */
+        prejoinPageEnabled: false,
+        overflowMenuEnabled: true,
+        remoteVideoMenuEnabled: false,
+        recordingEnabled: true,
+        lobbyModeEnabled: true,
+        resolution: '1080',
+      };
+      jitsiCall(serverConf, userInfo, meetOptions, meetFeatureFlags);
+      setIsLoading(true);
     }, 1000);
-  }, [])
+  }, []);
+
+  useEffect(() => {
+    const subscriptions = [];
+    subscriptions.push(
+      jitsiEventEmitter.addListener('onConferenceJoined', data => {
+        console.log('onConferenceJoined:', data);
+      }),
+    );
+    subscriptions.push(
+      jitsiEventEmitter.addListener('onConferenceTerminated', data => {
+        console.log('onConferenceTerminated:', data);
+      }),
+    );
+    subscriptions.push(
+      jitsiEventEmitter.addListener('onConferenceWillJoin', data => {
+        console.log('onConferenceWillJoin:', data);
+      }),
+    );
+    subscriptions.push(
+      jitsiEventEmitter.addListener('onEnterPictureInPicture', data => {
+        console.log('onEnterPictureInPicture:', data);
+      }),
+    );
+
+    return () => {
+      subscriptions.forEach(sub => sub.remove());
+    };
+  }, []);
 
   return (
-    <View style={{ backgroundColor: 'black', flex: 1 }}>
-      <JitsiMeetView onConferenceTerminated={onConferenceTerminated} onConferenceJoined={onConferenceJoined} onConferenceWillJoin={onConferenceWillJoin} style={{ flex: 1, height: '100%', width: '100%' }} />
-    </View>
-  )
-}
+    isLoading && (
+      <JitsiMeetView
+        style={{
+          flex: 1,
+          height: '100%',
+          width: '100%',
+          backgroundColor: 'transparent',
+        }}
+      />
+    )
+  );
+};
 
 export default VideoCall;
+
 ```
 
-You can also check the [ExampleApp](https://github.com/skrafft/react-native-jitsi-meet/tree/master/ExampleApp)
+You can also check the [ExampleApp](https://github.com/tugayoktayokay/react-native-jitsi-meet/tree/master/ExampleApp)
 
 ### Events
 
 You can add listeners for the following events:
+
 - onConferenceJoined
 - onConferenceTerminated
 - onConferenceWillJoin
 
-
 ## Use (< 2.0.0 and RN<0.60)
 
-In your component, 
+In your component,
 
-1.) import JitsiMeet and JitsiMeetEvents: `import JitsiMeet, { JitsiMeetEvents } from 'react-native-jitsi-meet';`
+1.) import JitsiMeet and JitsiMeetEvents: `import { jitsiEventEmitter } from 'react-native-jitsi-meet';`
 
-2.) add the following code: 
+2.) add the following code:
 
 ```
-  const initiateVideoCall = () => {
-    JitsiMeet.initialize();
-    JitsiMeetEvents.addListener('CONFERENCE_LEFT', (data) => {
-      console.log('CONFERENCE_LEFT');
-    });
-    setTimeout(() => {
-      JitsiMeet.call(`<your url>`);
-    }, 1000);
-  };
+ jitsiEventEmitter.addListener('onConferenceJoined', data => {
+      console.log('onConferenceJoined:', data);
+ });
 ```
+
 ### Events
 
 You can add listeners for the following events:
+
 - CONFERENCE_JOINED
 - CONFERENCE_LEFT
 - CONFERENCE_WILL_JOIN
@@ -146,22 +185,28 @@ You can add listeners for the following events:
 <key>NSMicrophoneUsageDescription</key>
 <string>Microphone Permission</string>
 ```
-3.) in `Info.plist`, make sure that 
+
+3.) in `Info.plist`, make sure that
+
 ```
 <key>UIBackgroundModes</key>
 <array>
 </array>
 ```
+
 contains `<string>voip</string>`
 
 ## iOS Install for RN >= 0.60
-1.) Modify your Podfile to have ```platform :ios, '10.0'``` and execute ```pod install```  
-2.) In Xcode, under Build setting set Enable Bitcode to No  
+
+1.) Modify your Podfile to have `platform :ios, '10.0'` and execute `pod install`  
+2.) In Xcode, under Build setting set Enable Bitcode to No
 
 ## iOS Install for RN < 0.60
+
 ### Step 1. Add Files Into Project
-- 1-1.) in Xcode: Right click `Libraries` ➜ `Add Files to [project]`  
-- 1-2.) choose `node_modules/react-native-jitsi-meet/ios/RNJitsiMeet.xcodeproj` then `Add`  
+
+- 1-1.) in Xcode: Right click `Libraries` ➜ `Add Files to [project]`
+- 1-2.) choose `node_modules/react-native-jitsi-meet/ios/RNJitsiMeet.xcodeproj` then `Add`
 - 1-3.) add `node_modules/react-native-jitsi-meet/ios/WebRTC.framework` and `node_modules/react-native-jitsi-meet/ios/JitsiMeet.framework` to the Frameworks folder
 - 1-4.) add `node_modules/react-native-jitsi-meet/ios/JitsiMeet.storyboard` in the same folder as AppDelegate.m
 - 1-5.) Replace the following code in AppDelegate.m:
@@ -171,13 +216,15 @@ contains `<string>voip</string>`
   rootViewController.view = rootView;
   self.window.rootViewController = rootViewController;
 ```
+
 with this one
+
 ```
   UIViewController *rootViewController = [UIViewController new];
   UINavigationController *navigationController = [[UINavigationController alloc]initWithRootViewController:rootViewController];
   navigationController.navigationBarHidden = YES;
   rootViewController.view = rootView;
-  self.window.rootViewController = navigationController; 
+  self.window.rootViewController = navigationController;
 ```
 
 This will create a navigation controller to be able to navigate between the Jitsi component and your react native screens.
@@ -186,20 +233,20 @@ This will create a navigation controller to be able to navigate between the Jits
 
 2-1.) select `Build Settings`, find `Search Paths`  
 2-2.) edit BOTH `Framework Search Paths` and `Library Search Paths`  
-2-3.) add path on BOTH sections with: `$(SRCROOT)/../node_modules/react-native-jitsi-meet/ios` with `recursive`  
+2-3.) add path on BOTH sections with: `$(SRCROOT)/../node_modules/react-native-jitsi-meet/ios` with `recursive`
 
 ### Step 3. Change General Setting and Embed Framework
 
 3-1.) go to `General` tab  
 3-2.) change `Deployment Target` to `8.0`  
-3-3.) add `WebRTC.framework` and `JitsiMeet.framework` in `Embedded Binaries` 
+3-3.) add `WebRTC.framework` and `JitsiMeet.framework` in `Embedded Binaries`
 
 ### Step 4. Link/Include Necessary Libraries
 
-- 4-1.) click `Build Phases` tab, open `Link Binary With Libraries`  
-- 4-2.) add `libRNJitsiMeet.a`  
-- 4-3.) make sure `WebRTC.framework` and `JitsiMeet.framework` linked  
-- 4-4.) add the following libraries depending on your version of XCode, some libraries might exist or not:  
+- 4-1.) click `Build Phases` tab, open `Link Binary With Libraries`
+- 4-2.) add `libRNJitsiMeet.a`
+- 4-3.) make sure `WebRTC.framework` and `JitsiMeet.framework` linked
+- 4-4.) add the following libraries depending on your version of XCode, some libraries might exist or not:
 
 ```
 AVFoundation.framework
@@ -258,9 +305,11 @@ echo $
 
 done
 ```
+
 This will run a script everytime you build to clean the unwanted architecture
 
 ## Android Install
+
 1.) In `android/app/build.gradle`, add/replace the following lines:
 
 ```
@@ -286,7 +335,8 @@ project.ext.react = [
     }
 ```
 
-3.) In `android/build.gradle`, add the following code 
+3.) In `android/build.gradle`, add the following code
+
 ```
 allprojects {
     repositories {
@@ -332,17 +382,20 @@ allprojects {
 ```
 
 2.) In the `<application>` section of `android/app/src/main/AndroidManifest.xml`, add
- ```xml
- <activity android:name="com.reactnativejitsimeet.JitsiMeetNavigatorActivity" />
- ```
- 
+
+```xml
+<activity android:name="com.reactnativejitsimeet.JitsiMeetNavigatorActivity" />
+```
+
 3.) In `android/settings.gradle`, include react-native-jitsi-meet module
+
 ```gradle
 include ':react-native-jitsi-meet'
 project(':react-native-jitsi-meet').projectDir = new File(rootProject.projectDir, '../node_modules/react-native-jitsi-meet/android')
 ```
 
 4.) In `android/app/build.gradle`, add react-native-jitsi-meet to dependencies
+
 ```gradle
 android {
   ...
@@ -379,7 +432,6 @@ import android.support.annotation.Nullable; // <--- Add this line if not already
       );
     }
 ```
-
 
 ### Side-note
 

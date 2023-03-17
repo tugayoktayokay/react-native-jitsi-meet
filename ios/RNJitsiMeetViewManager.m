@@ -1,136 +1,145 @@
 #import "RNJitsiMeetViewManager.h"
 #import "RNJitsiMeetView.h"
+#import "RNJitsiMeetEventEmitter.h"
 #import <JitsiMeetSDK/JitsiMeetUserInfo.h>
 
 @implementation RNJitsiMeetViewManager{
     RNJitsiMeetView *jitsiMeetView;
+    RNJitsiMeetEventEmitter *eventEmitter;
 }
 
 RCT_EXPORT_MODULE(RNJitsiMeetView)
-RCT_EXPORT_VIEW_PROPERTY(onConferenceJoined, RCTBubblingEventBlock)
-RCT_EXPORT_VIEW_PROPERTY(onConferenceTerminated, RCTBubblingEventBlock)
-RCT_EXPORT_VIEW_PROPERTY(onConferenceWillJoin, RCTBubblingEventBlock)
-RCT_EXPORT_VIEW_PROPERTY(onEnteredPip, RCTBubblingEventBlock)
+
++ (BOOL)requiresMainQueueSetup {
+    return YES;
+}
+
+- (instancetype)init {
+    self = [super init];
+    if (self) {
+        _isPip = NO;
+        _eventSentFlags = [NSMutableDictionary dictionary];
+    }
+    return self;
+}
 
 - (UIView *)view
 {
-  jitsiMeetView = [[RNJitsiMeetView alloc] init];
-  jitsiMeetView.delegate = self;
-  return jitsiMeetView;
+    jitsiMeetView = [[RNJitsiMeetView alloc] init];
+    NSLog(@"UI initialized");
+    jitsiMeetView.delegate = self;
+    return jitsiMeetView;
 }
 
-RCT_EXPORT_METHOD(initialize)
-{
-    RCTLogInfo(@"Initialize is deprecated in v2");
+- (void)setBridge:(RCTBridge *)bridge {
+    [super setBridge:bridge];
+    NSLog(@"Bridge initialized");
+    eventEmitter = [bridge moduleForName:@"RNJitsiMeetEventEmitter"];
 }
 
-RCT_EXPORT_METHOD(
-  call:(NSString *)urlString
-  userInfo:(NSDictionary *)userInfo
-  meetOptions:(NSDictionary *)meetOptions
-  meetFeatureFlags:(NSDictionary *)meetFeatureFlags
-)
-{
-    RCTLogInfo(@"Load URL %@", urlString);
-    JitsiMeetUserInfo * _userInfo = [[JitsiMeetUserInfo alloc] init];
-    if (userInfo != NULL) {
-      if (userInfo[@"displayName"] != NULL) {
-        _userInfo.displayName = userInfo[@"displayName"];
-      }
-      if (userInfo[@"email"] != NULL) {
-        _userInfo.email = userInfo[@"email"];
-      }
-      if (userInfo[@"avatar"] != NULL) {
-        NSURL *url = [NSURL URLWithString:[userInfo[@"avatar"] stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]]];
-        _userInfo.avatar = url;
-      }
+- (void)setMeetOptions:(NSDictionary *)meetOptions forBuilder:(JitsiMeetConferenceOptionsBuilder *)builder withServerConf:(NSDictionary *)serverConf andUserInfo:(JitsiMeetUserInfo *)_userInfo {
+    builder.serverURL = [NSURL URLWithString:serverConf[@"urlString"] ?: @""];
+    builder.room = serverConf[@"room"] ?: @"";
+    builder.userInfo = _userInfo;
+    builder.token = meetOptions[@"token"] ?: @"";
+    builder.subject = meetOptions[@"subject"] ?: @"";
+    builder.videoMuted = meetOptions[@"videoMuted"] ? [meetOptions[@"videoMuted"] boolValue] : false;
+    builder.audioOnly = meetOptions[@"audioOnly"] ? [meetOptions[@"audioOnly"] boolValue] : false;
+    builder.audioMuted = meetOptions[@"audioMuted"] ? [meetOptions[@"audioMuted"] boolValue] : false;
+}
+
+- (void)setMeetFeatureFlags:(NSDictionary *)meetFeatureFlags forBuilder:(JitsiMeetConferenceOptionsBuilder *)builder {
+    NSDictionary *flagMapping = @{
+        @"iosScreenSharingEnabled": @"ios.screensharing.enabled",
+        @"addPeopleEnabled": @"add-people.enabled",
+        @"calendarEnabled": @"calendar.enabled",
+        @"callIntegrationEnabled": @"call-integration.enabled",
+        @"chatEnabled": @"chat.enabled",
+        @"closeCaptionsEnabled": @"close-captions.enabled",
+        @"conferenceTimerEnabled": @"conference-timer.enabled",
+        @"embedMeetingEnabled": @"embed-meeting.enabled",
+        @"filmstripEnabled": @"filmstrip.enabled",
+        @"hangupEnabled": @"hangup.enabled",
+        @"helpEnabled": @"help.enabled",
+        @"inviteEnabled": @"invite.enabled",
+        @"iosRecordingEnabled": @"ios.recording.enabled",
+        @"kickOutEnabled": @"kick-out.enabled",
+        @"liveStreamingEnabled": @"live-streaming.enabled",
+        @"lobbyModeEnabled": @"lobby-mode.enabled",
+        @"meetingNameEnabled": @"meeting-name.enabled",
+        @"meetingPasswordEnabled": @"meeting-password.enabled",
+        @"notificationsEnabled": @"notifications.enabled",
+        @"overflowMenuEnabled": @"overflow-menu.enabled",
+        @"pipEnabled": @"pip.enabled",
+        @"raiseHandEnabled": @"raise-hand.enabled",
+        @"recordingEnabled": @"recording.enabled",
+        @"reactionsEnabled": @"reactions.enabled",
+        @"remoteVideoMenuEnabled": @"remote-video-menu.enabled",
+        @"resolution": @"resolution",
+        @"serverURLChangeEnabled": @"server-url-change.enabled",
+        @"tileViewEnabled": @"tile-view.enabled",
+        @"toolboxAlwaysVisible": @"toolbox.alwaysVisible",
+        @"toolboxEnabled": @"toolbox.enabled",
+        @"videoShareEnabled": @"video-share.enabled",
+        @"welcomePageEnabled": @"welcomepage.enabled",
+        @"prejoinPageEnabled": @"prejoinpage.enabled"
+    };
+    [meetFeatureFlags enumerateKeysAndObjectsUsingBlock:^(NSString *key, id value, BOOL *stop) {
+        NSString *flag = flagMapping[key];
+        if (flag) {
+            if ([flag isEqualToString:@"resolution"]) {
+                [builder setFeatureFlag:flag withValue:value];
+            } else {
+                [builder setFeatureFlag:flag withBoolean:[value boolValue]];
+            }
+        }
+    }];
+}
+
+- (void)joinConferenceWithOptions:(NSDictionary *)serverConf meetOptions:(NSDictionary *)meetOptions  userInfo:(NSDictionary *)userInfo meetFeatureFlags:(NSDictionary *)meetFeatureFlags audioOnly:(BOOL)audioOnly {
+    JitsiMeetUserInfo *_userInfo = [self createUserInfo:userInfo];
+    JitsiMeetConferenceOptions *options = [JitsiMeetConferenceOptions fromBuilder:^(JitsiMeetConferenceOptionsBuilder *builder) {
+        [self setMeetOptions:meetOptions forBuilder:builder withServerConf:serverConf andUserInfo:_userInfo];
+        [self setMeetFeatureFlags:meetFeatureFlags forBuilder:builder];
+        builder.audioOnly = audioOnly;
+    }];
+    [jitsiMeetView join:options];
+}
+
+- (void)sendEventOnce:(NSString *)eventName body:(NSDictionary *)body {
+    if ([self.eventSentFlags[eventName] boolValue]) {
+        self.eventSentFlags[eventName] = @(NO);
+        return;
     }
+    
+    self.eventSentFlags[eventName] = @(YES);
+    [eventEmitter sendEventWithName:eventName body:(!body ? @{@"isPip": @(_isPip=!_isPip)} : body)];
+}
+
+- (JitsiMeetUserInfo *)createUserInfo:(NSDictionary *)userInfo {
+    JitsiMeetUserInfo * _userInfo = [[JitsiMeetUserInfo alloc] init];
+    
+    _userInfo.displayName = userInfo[@"displayName"] ?: @"";
+    _userInfo.email = userInfo[@"email"] ?: @"";
+    
+    NSString *avatar = userInfo[@"avatar"];
+    if (avatar) {
+        NSURL *url = [NSURL URLWithString:[avatar stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]]];
+        _userInfo.avatar = url;
+    }
+    
+    return _userInfo;
+}
+
+RCT_EXPORT_METHOD(call:(NSDictionary *)serverConf userInfo:(NSDictionary *)userInfo  meetOptions:(NSDictionary *)meetOptions meetFeatureFlags:(NSDictionary *)meetFeatureFlags) {
     dispatch_sync(dispatch_get_main_queue(), ^{
-        JitsiMeetConferenceOptions *options = [JitsiMeetConferenceOptions fromBuilder:^(JitsiMeetConferenceOptionsBuilder *builder) {        
-            builder.room = urlString;
-            if(meetOptions[@"token"] != NULL)
-              builder.token = meetOptions[@"token"];
-            if(meetOptions[@"subject"] != NULL)
-              builder.subject = meetOptions[@"subject"];
-            if(meetOptions[@"videoMuted"] != NULL)
-              builder.videoMuted = [[meetOptions objectForKey:@"videoMuted"] boolValue];
-            if(meetOptions[@"audioOnly"] != NULL)
-              builder.audioOnly = [[meetOptions objectForKey:@"audioOnly"] boolValue];
-            if(meetOptions[@"audioMuted"] != NULL)
-              builder.audioMuted = [[meetOptions objectForKey:@"audioMuted"] boolValue];
-
-            if(meetFeatureFlags[@"addPeopleEnabled"] != NULL)
-              [builder setFeatureFlag:@"add-people.enabled" withBoolean:[[meetFeatureFlags objectForKey:@"addPeopleEnabled"] boolValue]];
-            if(meetFeatureFlags[@"calendarEnabled"] != NULL)
-              [builder setFeatureFlag:@"calendar.enabled" withBoolean:[[meetFeatureFlags objectForKey:@"calendarEnabled"] boolValue]];
-            if(meetFeatureFlags[@"callIntegrationEnabled"] != NULL)
-              [builder setFeatureFlag:@"call-integration.enabled" withBoolean:[[meetFeatureFlags objectForKey:@"callIntegrationEnabled"] boolValue]];
-            if(meetFeatureFlags[@"chatEnabled"] != NULL)
-              [builder setFeatureFlag:@"chat.enabled" withBoolean:[[meetFeatureFlags objectForKey:@"chatEnabled"] boolValue]];
-            if(meetFeatureFlags[@"closeCaptionsEnabled"] != NULL)
-              [builder setFeatureFlag:@"close-captions.enabled" withBoolean:[[meetFeatureFlags objectForKey:@"closeCaptionsEnabled"] boolValue]];
-            if(meetFeatureFlags[@"inviteEnabled"] != NULL)
-              [builder setFeatureFlag:@"invite.enabled" withBoolean:[[meetFeatureFlags objectForKey:@"inviteEnabled"] boolValue]];
-            if(meetFeatureFlags[@"iosRecordingEnabled"] != NULL)
-              [builder setFeatureFlag:@"ios-recording.enabled" withBoolean:[[meetFeatureFlags objectForKey:@"iosRecordingEnabled"] boolValue]];
-            if(meetFeatureFlags[@"liveStreamingEnabled"] != NULL)
-              [builder setFeatureFlag:@"live-streaming.enabled" withBoolean:[[meetFeatureFlags objectForKey:@"liveStreamingEnabled"] boolValue]];
-            if(meetFeatureFlags[@"meetingNameEnabled"] != NULL)
-              [builder setFeatureFlag:@"meeting-name.enabled" withBoolean:[[meetFeatureFlags objectForKey:@"meetingNameEnabled"] boolValue]];
-            if(meetFeatureFlags[@"toolboxEnabled"] != NULL)
-              [builder setFeatureFlag:@"toolbox.enabled" withBoolean:[[meetFeatureFlags objectForKey:@"toolboxEnabled"] boolValue]];
-            if(meetFeatureFlags[@"toolboxAlwaysVisible"] != NULL)
-              [builder setFeatureFlag:@"toolbox.alwaysVisible" withBoolean:[[meetFeatureFlags objectForKey:@"toolboxAlwaysVisible"] boolValue]];
-            if(meetFeatureFlags[@"raiseHandEnabled"] != NULL)
-              [builder setFeatureFlag:@"raise-hand.enabled" withBoolean:[[meetFeatureFlags objectForKey:@"raiseHandEnabled"] boolValue]];
-            if(meetFeatureFlags[@"reactionsEnabled"] != NULL)
-              [builder setFeatureFlag:@"reactions.enabled" withBoolean:[[meetFeatureFlags objectForKey:@"reactionsEnabled"] boolValue]];
-            if(meetFeatureFlags[@"kickOutEnabled"] != NULL)
-              [builder setFeatureFlag:@"kick-out.enabled" withBoolean:[[meetFeatureFlags objectForKey:@"kickOutEnabled"] boolValue]];
-            if(meetFeatureFlags[@"conferenceTimerEnabled"] != NULL)
-              [builder setFeatureFlag:@"conference-timer.enabled" withBoolean:[[meetFeatureFlags objectForKey:@"conferenceTimerEnabled"] boolValue]];
-            if(meetFeatureFlags[@"videoShareEnabled"] != NULL)
-              [builder setFeatureFlag:@"video-share.enabled" withBoolean:[[meetFeatureFlags objectForKey:@"videoShareEnabled"] boolValue]];
-            if(meetFeatureFlags[@"meetingPasswordEnabled"] != NULL)
-              [builder setFeatureFlag:@"meeting-password.enabled" withBoolean:[[meetFeatureFlags objectForKey:@"meetingPasswordEnabled"] boolValue]];
-            if(meetFeatureFlags[@"pipEnabled"] != NULL)
-              [builder setFeatureFlag:@"pip.enabled" withBoolean:[[meetFeatureFlags objectForKey:@"pipEnabled"] boolValue]];
-            if(meetFeatureFlags[@"tileViewEnabled"] != NULL)
-              [builder setFeatureFlag:@"tile-view.enabled" withBoolean:[[meetFeatureFlags objectForKey:@"tileViewEnabled"] boolValue]];
-            if(meetFeatureFlags[@"welcomePageEnabled"] != NULL)
-              [builder setFeatureFlag:@"welcomepage.enabled" withBoolean:[[meetFeatureFlags objectForKey:@"welcomePageEnabled"] boolValue]];
-            if(meetFeatureFlags[@"prejoinPageEnabled"] != NULL)
-              [builder setFeatureFlag:@"prejoinpage.enabled" withBoolean:[[meetFeatureFlags objectForKey:@"prejoinPageEnabled"] boolValue]];
-
-            builder.userInfo = _userInfo;
-        }];
-        [jitsiMeetView join:options];
+        [self joinConferenceWithOptions:serverConf meetOptions:meetOptions userInfo:userInfo meetFeatureFlags:meetFeatureFlags audioOnly:NO];
     });
 }
 
-RCT_EXPORT_METHOD(audioCall:(NSString *)urlString userInfo:(NSDictionary *)userInfo)
-{
-    RCTLogInfo(@"Load Audio only URL %@", urlString);
-    JitsiMeetUserInfo * _userInfo = [[JitsiMeetUserInfo alloc] init];
-    if (userInfo != NULL) {
-      if (userInfo[@"displayName"] != NULL) {
-        _userInfo.displayName = userInfo[@"displayName"];
-      }
-      if (userInfo[@"email"] != NULL) {
-        _userInfo.email = userInfo[@"email"];
-      }
-      if (userInfo[@"avatar"] != NULL) {
-        NSURL *url = [NSURL URLWithString:[userInfo[@"avatar"] stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]]];
-        _userInfo.avatar = url;
-      }
-    }
+RCT_EXPORT_METHOD(audioCall:(NSDictionary *)serverConf userInfo:(NSDictionary *)userInfo){
     dispatch_sync(dispatch_get_main_queue(), ^{
-        JitsiMeetConferenceOptions *options = [JitsiMeetConferenceOptions fromBuilder:^(JitsiMeetConferenceOptionsBuilder *builder) {        
-            builder.room = urlString;
-            builder.userInfo = _userInfo;
-            builder.audioOnly = YES;
-        }];
-        [jitsiMeetView join:options];
+        [self joinConferenceWithOptions:serverConf meetOptions:nil userInfo:userInfo meetFeatureFlags:nil audioOnly:YES];
     });
 }
 
@@ -142,41 +151,22 @@ RCT_EXPORT_METHOD(endCall)
 }
 
 #pragma mark JitsiMeetViewDelegate
-
-- (void)conferenceJoined:(NSDictionary *)data {
-    RCTLogInfo(@"Conference joined");
-    if (!jitsiMeetView.onConferenceJoined) {
-        return;
-    }
-
-    jitsiMeetView.onConferenceJoined(data);
+-(void)conferenceJoined:(NSDictionary *)data {
+    [self sendEventOnce:@"onConferenceJoined" body:data];
 }
 
-- (void)conferenceTerminated:(NSDictionary *)data {
-    RCTLogInfo(@"Conference terminated");
-    if (!jitsiMeetView.onConferenceTerminated) {
-        return;
-    }
-
-    jitsiMeetView.onConferenceTerminated(data);
+-(void)conferenceTerminated:(NSDictionary *)data {
+    [self sendEventOnce:@"onConferenceTerminated" body:data];
 }
 
-- (void)conferenceWillJoin:(NSDictionary *)data {
-    RCTLogInfo(@"Conference will join");
-    if (!jitsiMeetView.onConferenceWillJoin) {
-        return;
-    }
-
-    jitsiMeetView.onConferenceWillJoin(data);
+-(void)conferenceWillJoin:(NSDictionary *)data {
+    [self sendEventOnce:@"onConferenceWillJoin" body:data];
 }
 
-- (void)enterPictureInPicture:(NSDictionary *)data {
-    RCTLogInfo(@"Enter Picture in Picture");
-    if (!jitsiMeetView.onEnteredPip) {
-        return;
-    }
-
-    jitsiMeetView.onEnteredPip(data);
+-(void)enterPictureInPicture:(NSDictionary *)data {
+   
+    [self sendEventOnce:@"onEnterPictureInPicture" body:nil];
 }
 
 @end
+
